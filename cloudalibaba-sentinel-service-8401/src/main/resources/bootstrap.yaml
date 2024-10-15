@@ -1,0 +1,31 @@
+server:
+  port: 8401
+
+spring:
+  application:
+    name: sentinel-client
+  cloud:
+    # ncaos配置
+    nacos:
+      discovery:
+        server-addr: localhost:8848 # Nacos服务注册中心地址
+      config:
+        server-addr: localhost:8848 # Nacos配置中心地址
+        file-extension: yaml # 指定加载yaml后缀的配置文件
+        group: DEV_GROUP # 指定服务所在的分组 TEST_GROUP or DEV_GROUP
+        namespace: 9351507a-ca24-4868-9693-f24c8d4d22ce  # 指定服务在哪个命名空间下面
+    # sentinel配置
+    sentinel:
+      transport:
+        # 配置sentinel dashboard地址
+        dashboard: localhost:8080
+        # 配置sentinel节点间通信的端口, 默认8719端口 如果8719端口被占用, 会自动从8719+1开始扫描, 直到找到可用的端口
+        port: 8719
+
+
+# sentinel dashboard配置
+management:
+  endpoints:
+    web:
+      exposure:
+        include: '*' # 开启所有监控端点
