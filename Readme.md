@@ -837,7 +837,7 @@ NamingService接口: Nacos客户端通过该接口向Nacos Server注册服务, �
 # 章节24. Sentinel介绍
 ### 什么是Sentinel
 Sentinel是阿里开源的**分布式系统的流量防卫兵**。随着微服务的普及, 服务调用的稳定性变得越来越重要。 <br/>
-Sentinel以流量为切人点, 在流量控制、断路、负载保护等多个领域开展工作, 保障服务的可靠性。
+Sentinel以流量为切入点, 在流量控制、断路、负载保护等多个领域开展工作, 保障服务的可靠性。
 
 ##### Sentinel的特点:
 1. 丰富的应用场景: Sentinel承接了阿里近10年的双十一大促流量的核心场景, 如秒杀(将瞬时流量控制在系统容量可以承接的范围内), 消息削峰填谷, 集群流量控制, 实时熔断下游不可用应用等。
@@ -1040,6 +1040,7 @@ ps: 重启服务后, 要重新配置流控规则; 选择线程数作为限流的
 比如我们有接口testA和testB, 我们设置testA的流控规则关联testB, 当testB达到阈值时, 触发testA的限流。
 
 1. 配置流控规则
+
 ![img_61.png](img_61.png)
 
 此时 如果testB达到阈值, 则testA也会被限流。
@@ -1089,7 +1090,7 @@ sentinel流控规则讲解: https://blog.csdn.net/qq_61635026/article/details/13
 
 ![img_67.png](img_67.png)
 
-结果是: 每隔 1s testA接口相应一次结果, postman会再重复发送请求
+结果是: 每隔 1s testA接口响应一次结果, postman会再重复发送请求
 
 # 章节31 Sentinel熔断降级简介
 除了流量控制以外, 对调用链路中不稳定的资源进行熔断降级也是保障高可用的重要措施之一。
@@ -1817,3 +1818,62 @@ Sentinel的持久化配置主要是指将sentinel的规则持久化到nacos/redi
 
 [修改sentinel源码, Sentinel Dashboard（基于1.8.1）流控规则持久化到Nacos](https://www.cnblogs.com/jian0110/p/14139044.html)
 
+# 章节46 Sentinel核心源码分析
+
+# 章节59 网关介绍
+在微服务架构中, 一个系统会被拆分为多个微服务, 那么客户端要如何去调用这么多的微服务呢? 如果没有网关的存在, 我们只能在客户端记录每个微服务的地址, 然后分别去调用 这样会产生很多问题, 例如:
+- 客户端多次请求不同的微服务, 增加客户端代码/配置编写的复杂度
+- 认证复杂, 每个微服务都有独立认证
+- 存在跨域请求, 在一定场景下处理相对复杂
+
+为了解决上面的问题, 我们引入了网关的概念, 所谓的API网关, 就是指系统的统一入口, 提供内部服务的路由中转, 为客户端提供统一服务。 <br/>
+一些与业务功能无关的公共逻辑可以在这里实现, 比如认证、鉴权、监控、路由转发等。
+
+[一张图搞懂微服务架构设计](https://blog.csdn.net/be_racle/article/details/132639028)
+
+![img_94.png](img_94.png)
+
+> 用户不能直接访问到后端服务, 必须经过统一的入口才可以访问到后端服务。
+
+##### 网关对比
+| 网关                   | 特性                                                                                                    |
+|----------------------|-------------------------------------------------------------------------------------------------------|
+| Zuul 1.x             | NetFlix开源的网关, 基于Servlet框架构建, 功能丰富, 使用java开发, 易于二次开发。问题:一个线程处理一次连接请求, bio ,效率低                         |
+| Zuul 2.x             | Zuul2采用了netty来实现nio, 每一个cpu有一个线程专门用来处理客户端连接, 具体的业务流程是通过事件和回调来触发其他线程处理的, 这种nio的方式开销较小                  |
+| Spring Cloud Gateway | Spring公司为了替换zuul而开发的网关服务, 底层为netty                                                                    |
+| Nginx + lua          | 使用nginx的反向代理和负载均衡可以实现api服务的负载均衡及高可用, lua是一种脚本语言, 可以编写一些简单的逻辑, nginx支持lua脚本, 问题在于 nginx+lua无法融入到微服务架构中 |
+| Kong                 | 基于nginx+lua开发, 性能高 稳定, 有多个可以即插即用的插件(限流、鉴权等), 问题在于只支持http协议, 二次开发、自由扩展难                                |
+
+一般使用nginx做第一层网关, 然后再使用Zuul或者Spring Cloud Gateway做第二层网关。
+
+##### Spring Cloud Gateway
+Spring Cloud Gateway旨在为微服务提供一种简单有效统一的API路由管理方式, 它的目标是替代Netflix zuul。<br/>
+Spring Cloud Gateway不仅提供了统一的路由方式, 并且基于Filter链的方式提供了网关基本的功能 例如: 安全, 监控和限流
+
+官网地址: https://spring.io/projects/spring-cloud-gateway/docs/current/reference/html/
+
+特点:
+- 性能强劲, 是Zuul的1.6倍
+- 功能强大, 内置了很多实用的功能, 比如转发、监控、限流等
+- 设计优雅, 容易扩展
+
+##### 基本概念
+路由(Route)是gateway中最基本的组件之一, 表示一个具体的路由信息载体, 主要定义了下面的几个信息:
+- id: 路由标识, 区别于其他route
+- uri: 路由指向的目标地uri, 即客户端请求最终被转发到的微服务
+- order: 用于多个route之间的排序, 数值越小排序越靠前, 匹配优先级越高
+- predicate: 断言的作用是进行条件判断, 只有断言都返回为真 才会真正的执行路由
+- filter: 过滤用于修改请求和响应信息(filter chain)
+
+##### 执行流程
+1. gateway client向gateway server发送请求
+2. 请求会首先被HttpWebHandlerAdapter进行提取组装成网关上下文
+3. 网关上下文会传递到DispatcherHandler, 它负责将请求转发给RoutePredicateHandlerMapping
+4. RoutePredicateHandlerMapping负责路由查找, 并根据路由断言判断路由是否可用
+5. 如果断言成功, 由FilteringWebHandler创建过滤器链并调用
+6. 请求会依次经过 PreFilter -> 微服务 -> PostFilter -> 最终返回响应
+
+##### 总结
+Spring Cloud Gateway使用的是WebFlux框架中的reactor-netty响应式编程组件, 底层使用了netty通讯框架
+
+# 章节60 Gateway工作流程 + Gateway基础搭建
