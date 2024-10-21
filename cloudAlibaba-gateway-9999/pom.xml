@@ -3,28 +3,55 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
     <groupId>com.example</groupId>
-    <artifactId>SpringCloud-Learning</artifactId>
+    <artifactId>cloudAlibaba-gateway-9999</artifactId>
     <version>0.0.1-SNAPSHOT</version>
-    <name>SpringCloud-Learning</name>
-    <description>SpringCloud-Learning</description>
-    <packaging>pom</packaging>
+    <name>cloudAlibaba-gateway-9999</name>
+    <description>cloudAlibaba-gateway-9999</description>
+
+    <parent>
+        <groupId>com.example</groupId>
+        <artifactId>SpringCloud-Learning</artifactId>
+        <version>0.0.1-SNAPSHOT</version>
+    </parent>
+
     <properties>
         <java.version>1.8</java.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
         <spring-boot.version>2.6.13</spring-boot.version>
-        <spring-cloud-alibaba-version>2021.0.1.0</spring-cloud-alibaba-version>
+        <spring-cloud-gateway.version>3.1.8</spring-cloud-gateway.version>
     </properties>
     <dependencies>
         <dependency>
             <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-web</artifactId>
+            <artifactId>spring-boot-starter</artifactId>
         </dependency>
 
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
             <scope>test</scope>
+        </dependency>
+        <!--gateway服务也要注册进nacos, 所以也需要nacos依赖-->
+        <dependency>
+            <groupId>com.alibaba.cloud</groupId>
+            <artifactId>spring-cloud-starter-alibaba-nacos-discovery</artifactId>
+        </dependency>
+        <!--gateway依赖-->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-gateway</artifactId>
+            <version>${spring-cloud-gateway.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-dependencies</artifactId>
+            <version>2021.0.3</version>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-loadbalancer</artifactId>
+            <version>3.1.0</version>
         </dependency>
     </dependencies>
     <dependencyManagement>
@@ -36,30 +63,8 @@
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
-
-            <dependency>
-                <groupId>com.alibaba.cloud</groupId>
-                <artifactId>spring-cloud-alibaba-dependencies</artifactId>
-                <version>${spring-cloud-alibaba-version}</version>
-                <type>pom</type>
-                <scope>import</scope>
-            </dependency>
         </dependencies>
     </dependencyManagement>
-
-    <modules>
-        <module>cloudAlibaba-nacos-9001</module>
-        <module>cloudAlibaba-nacos-9002</module>
-        <module>cloud-Alibaba-nacos-consumer-1</module>
-        <module>cloudAlibaba-config-3377</module>
-        <module>cloudalibaba-sentinel-service-8401</module>
-        <module>cloud-alibaba-consuemr-8084</module>
-        <module>cloud-alibaba-provider-9003</module>
-        <module>cloud-alibaba-provider-9004</module>
-        <module>cloud-alibaba-commons</module>
-        <module>cloudalibaba-openFeign-consumer-8888</module>
-        <module>cloudAlibaba-gateway-9999</module>
-    </modules>
 
     <build>
         <plugins>
@@ -78,7 +83,7 @@
                 <artifactId>spring-boot-maven-plugin</artifactId>
                 <version>${spring-boot.version}</version>
                 <configuration>
-                    <mainClass>com.example.springcloudlearning.SpringCloudLearningApplication</mainClass>
+                    <mainClass>com.example.cloudalibabagateway9999.CloudAlibabaGateway9999Application</mainClass>
                     <skip>true</skip>
                 </configuration>
                 <executions>

@@ -31,5 +31,26 @@ public class DemoController {
         }
         return "Hello Nacos Discovery " + serverPort + " " + id;
     }
+
+    @GetMapping("/gateway")
+    public String gateway(){
+        return "gateway" + " " + serverPort;
+    }
+
+    @GetMapping("/gateway/param/{id}")
+    public String gatewayParam(@PathVariable(name="id") Long id){
+        return "gateway/parm" + id + " " + serverPort;
+    }
+
+    @GetMapping("/gateway2")
+    public String gateway2(){
+        return "gateway2" + " " + serverPort;
+    }
+
+    @GetMapping("/route")
+    public String route(){
+        return "gateway-route" + " " + serverPort;
+    }
+
 }
 

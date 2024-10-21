@@ -1877,3 +1877,201 @@ Spring Cloud Gateway不仅提供了统一的路由方式, 并且基于Filter链�
 Spring Cloud Gateway使用的是WebFlux框架中的reactor-netty响应式编程组件, 底层使用了netty通讯框架
 
 # 章节60 Gateway工作流程 + Gateway基础搭建
+##### Spring Cloud Gateway核心流程图:
+
+![img_95.png](img_95.png)
+
+客户端向Spring Cloud Gateway发出请求, 如果Gateway Handler确定请求与路由匹配, 则将其发送到Gateway Web Handler处理程序。 <br/>
+Gateway Web Handler处理程序通过对应的filter链运行请求, 执行pre处理和post处理, 执行所有的过滤逻辑。 <br/>
+然后将请求交给服务, 服务执行完逻辑响应后 执行post过滤器逻辑。
+
+**过滤器作用:** <br/>
+- Filter在pre类型的过滤器中可以做参数校验、权限校验、流量监控、日志输出、协议转换等操作。
+- Filter在post类型的过滤器中可以做响应内容、响应头的修改, 日志输出, 流量监控等。
+- 这两种类型的过滤器的作用非常重要。
+
+##### 核心点
+- Route(路由): 路由是网关的基础模块, 它由id, 目标uri, 包括一系列的断言和过滤器组成, 如果断言为true则匹配该路由。
+- predicate(断言): 参考的是java8的java.util.function.Predicate, 开发人员可以匹配HTTP请求中的所有内容(例如请求头或请求参数), 请求与断言匹配则进行对应的路由
+- Filter(过滤): 指的是Spring框架中GatewayFilter的实例, 使用过滤器, 可以在请求被路由前或者响应前对请求/响应进行修改
+- 三个核心点连起来: 用户发出请求到达Gateway, Gateway通过一些匹配条件， 定位到真正的服务器节点, 并在这个转发过程前后, 进行一些细化控制, 其中Predicate就是匹配的条件, Filter就是过滤器链, 这两个加上目标uri, 就可以实现一个路由。
+
+##### 总结
+Gateway核心流程就是: 根据predicate进行路由转发 + 执行过滤器链, 后端服务不直接对外暴露
+
+### Gateway项目搭建
+我们搭建一个GateWay项目: cloudAlibaba-gateway-9999
+
+注意SpringCloud Gateway的版本要选择正确, springboot和spring cloud版本对应地址: https://spring.io/projects/spring-cloud
+
+> 注意: 引入Gateway依赖时一定要删除spring-boot-starter-web依赖, 否则会有冲突无法启动
+
+pom.xml:
+```xml
+        <!--gateway服务也要注册进nacos, 所以也需要nacos依赖-->
+        <dependency>
+            <groupId>com.alibaba.cloud</groupId>
+            <artifactId>spring-cloud-starter-alibaba-nacos-discovery</artifactId>
+        </dependency>
+        <!--gateway依赖-->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-gateway</artifactId>
+            <version>${spring-cloud-gateway.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-dependencies</artifactId>
+            <version>2021.0.9</version>
+        </dependency>
+        <!--loadbalancer负载均衡组件, 必须加 否则gateway无法实现负载均衡-->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-loadbalancer</artifactId>
+            <version>3.0.1</version>
+        </dependency>
+```
+
+配置yaml文件:
+```yaml
+server:
+  port: 9999
+
+spring:
+  main:
+    web-application-type: reactive
+  application:
+    name: cloud-gateway-service
+  cloud:
+    nacos:
+      discovery:
+        server-addr: localhost:8848
+    gateway:
+      discovery:
+        locator:
+          enabled: true # 开启注册中心路由功能, 把网关服务注册到naocs中
+      routes:
+        # 路由1
+        - id: nacos-provider
+          uri: http://localhost:9001/nacos-provider # 匹配提供服务的路由地址
+          predicates:
+            - Path=/gateway/** # 断言, 路径相匹配则进行路由, 访问http://localhost:9001/nacos-provider/gateway/** 时匹配
+        # 路由2
+        - id: nacos-provider2
+          uri: http://localhost:9001/nacos-provider # 匹配提供服务的路由地址
+          predicates:
+            - Path=/route/** # 断言, 路径相匹配则进行路由
+
+
+```
+
+nacos9001/9002服务的DemoController接口新增方法:
+```java
+    @GetMapping("/gateway")
+public String gateway(){
+        return "gateway" + " " + serverPort;
+        }
+
+@GetMapping("/gateway/param/{id}")
+public String gatewayParam(@PathVariable(name="id") Long id){
+        return "gateway/parm" + id + " " + serverPort;
+        }
+
+@GetMapping("/gateway2")
+public String gateway2(){
+        return "gateway2" + " " + serverPort;
+        }
+
+@GetMapping("/route")
+public String route(){
+        return "gateway-route" + " " + serverPort;
+        }
+```
+
+##### 测试
+1. 启动nacos9001/9002服务
+2. 启动gateway9999服务(网关服务)
+3. 用户不再直接访问服务器, 而是先访问网关服务, 由网关服务匹配路由到对应的服务上
+
+网关服务成功注册到了Nacos上:
+
+![img_96.png](img_96.png)
+
+访问网关服务能匹配上的接口, 请求被顺利转发:
+
+![img_97.png](img_97.png)
+
+用户向网关发起请求, 网关预处理对应请求并转发到对应服务的接口
+
+# 章节61 Gateway配置路由的两种方式(配置文件 or 配置类)
+Gateway提供了两种配置路由的方式:
+1. 基于配置文件(上一章)
+2. 基于配置类
+
+##### GatewayConfig
+通过配置类的方式配置routes(id, uri, predicate, filter)
+
+```java
+@Configuration
+public class GatewayConfig {
+
+    @Bean
+    public RouteLocator customRouteLocator(RouteLocatorBuilder builder) {
+        //构建多个routes
+        RouteLocatorBuilder.Builder routes = builder.routes();
+        //配置路由的具体地址(第一个路由)
+        RouteLocator routeLocator = routes.route("gateway2-id", r -> r.path("/gateway2/**").uri("http://localhost:9001/nacos-provider")).build();
+        //配置路由的具体地址(第二个路由)
+        // routes.route("gateway3-id", r -> r.path("/gateway3/**").uri("http://localhost::9002/nacos-provider"));
+        return routeLocator;
+    }
+}
+```
+# 章节62 Gateway实现负载均衡
+之前我们的uri配置是写死了ip和端口号, 事实上gateway集成了ribbon, 支持负载均衡访问。gateway有两种实现负载均衡的方式:
+
+##### 自动负载均衡
+Gateway提供了和zuul类似的自动路由规则, 具体配置如下: <br/>
+spring.cloud.gateway.discovery.locator.enabled=true 这个配置默认为false, 当设置为true时, 就是开启了gateway获得注册中心上的各服务信息, 通过ServiceId进行**负载均衡**请求转发到对应的服务实例上。(访问时需要指定serviceId, eg: localhost:9999/serviceId(nacos-provicer)/gateway)
+
+问题: 服务名称暴露, 因此一般不会这么做
+
+##### 手动负载均衡
+此时可以关闭spring.cloud.gateway.discovery.locator.enabled, 通过lb原则(lb代表开启负载均衡)修改配置文件:
+
+```yaml
+server:
+  port: 9999
+
+spring:
+  main:
+    web-application-type: reactive
+  application:
+    name: cloud-gateway-service
+  cloud:
+    nacos:
+      discovery:
+        server-addr: localhost:8848
+    gateway:
+      discovery:
+        locator:
+          enabled: true # 默认为false, 开启注册中心路由功能, 把网关服务注册到naocs中(设置为true后, 网关服务会自动到注册中心获取其他注册的服务名 实现负载均衡的功能)
+      routes:
+        # 路由1
+        - id: nacos-provider
+          uri: lb://nacos-provider # 通过lb原则手动配置负载均衡 lb://服务名称
+          predicates:
+            - Path=/gateway/** # 断言, 路径相匹配则进行路由, 访问http://localhost:9001/nacos-provider/gateway/** 时匹配
+        # 路由2
+        - id: nacos-provider2
+          uri: lb://nacos-provider # 匹配提供服务的路由地址
+          predicates:
+            - Path=/route/** # 断言, 路径相匹配则进行路由
+
+```
+访问网关的匹配接口, 网关会负载均衡的将请求转发到服务实例上:
+
+![img_99.png](img_99.png)
+
+![img_98.png](img_98.png)
+
