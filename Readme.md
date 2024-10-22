@@ -2075,3 +2075,222 @@ spring:
 
 ![img_98.png](img_98.png)
 
+# 章节63 Gateway断言 Predicate
+每一个predicate都是路由转发的前置条件, 如果有若干个predicate 则可以理解为满足所有条件时才会转发
+
+### 断言种类
+1. After: 匹配在指定日期之后发生的请求
+2. Before: 匹配在指定日期之前发生的请求
+3. Between: 需要指定两个日期参数来设定一个时间区间, 匹配在此时间区间内的请求
+4. Cookie: 需要指定两个参数, 分别为name和regexp(正则表达式), 也可以理解为key和value, 匹配具有给定名称且其值与正则表达式相匹配的cookie
+5. Header: 需要两个参数 header和regexp(正则表达式), 也可以理解为key和value, 匹配请求头中具有给定名称且其值与正则表达式相匹配的信息
+6. Host: 匹配当前请求是否来自于设定的主机
+7. Method: 可以设置一个或多个参数, 用来匹配http请求类型, 比如get、post等
+8. Path: 匹配指定路径下的请求, 可以是多个 用逗号分隔
+9. Query: 需要指定一个或多个参数, 一个必选参数和一个可选的正则表达式, 匹配请求中是否包含第一个参数, 如果请求中有两个参数, 则匹配请求中第一个参数的值是否符合正则表达式
+10. RemoteAddr: 匹配指定IP或IP段, 符合条件转发
+11. Weight: 需要两个参数 group和weight(int), 实现了路由权重功能, 按照路由权重选择同一个分组中的路由
+
+### 常用断言演示
+https://docs.spring.io/spring-cloud-gateway/docs/current/reference/html/#gateway-request-predicates-factories
+
+启动服务后, 使用postman测试
+
+##### 1. After / Before / Between
+```yaml
+spring:
+  main:
+    web-application-type: reactive
+  application:
+    name: cloud-gateway-service
+  cloud:
+    nacos:
+      discovery:
+        server-addr: localhost:8848
+    gateway:
+      discovery:
+        locator:
+          enabled: true # 默认为false, 开启注册中心路由功能, 把网关服务注册到naocs中(设置为true后, 网关服务会自动到注册中心获取其他注册的服务名 实现负载均衡的功能)
+      routes:
+        # 路由1
+        - id: nacos-provider
+          uri: lb://nacos-provider # 通过lb原则手动配置负载均衡 lb://服务名称
+          predicates:
+            - Path=/gateway/** # 断言, 路径相匹配则进行路由, 访问http://localhost:9001/nacos-provider/gateway/** 时匹配
+        # 路由2
+        - id: nacos-provider2
+          uri: lb://nacos-provider # 匹配提供服务的路由地址
+          predicates:
+            - Path=/route/** # 断言, 路径相匹配则进行路由
+            - After=2018-01-01T00:00:00.000+08:00[Asia/Shanghai] # 匹配在这个时间之后的请求
+            - Before=2020-01-01T00:00:00.000+08:00[Asia/Shanghai] # 匹配在这个时间之前的请求
+            - Between=2018-01-01T00:00:00.000+08:00[Asia/Shanghai],2020-01-02T00:00:00.000+08:00[Asia/Shanghai] # 匹配在这个时间区间内的请求
+
+```
+
+##### 2. Cookie / Header
+```yaml
+server:
+  port: 9999
+
+spring:
+  main:
+    web-application-type: reactive
+  application:
+    name: cloud-gateway-service
+  cloud:
+    nacos:
+      discovery:
+        server-addr: localhost:8848
+    gateway:
+      discovery:
+        locator:
+          enabled: true # 默认为false, 开启注册中心路由功能, 把网关服务注册到naocs中(设置为true后, 网关服务会自动到注册中心获取其他注册的服务名 实现负载均衡的功能)
+      routes:
+        # 路由1
+        - id: nacos-provider
+          uri: lb://nacos-provider # 通过lb原则手动配置负载均衡 lb://服务名称
+          predicates:
+            - Path=/gateway/** # 断言, 路径相匹配则进行路由, 访问http://localhost:9001/nacos-provider/gateway/** 时匹配
+        # 路由2
+        - id: nacos-provider2
+          uri: lb://nacos-provider # 匹配提供服务的路由地址
+          predicates:
+            - Path=/route/** # 断言, 路径相匹配则进行路由
+            - Cookie=username, [a-z]+ # 断言, 带有username为小写字母的cookie才进行路由
+            - Header=X-Request-Id, \d+ # 断言, 带有X-Request-Id头且值为数字的请求才进行路由
+
+```
+
+##### 3. Host
+```yaml
+server:
+  port: 9999
+
+spring:
+  main:
+    web-application-type: reactive
+  application:
+    name: cloud-gateway-service
+  cloud:
+    nacos:
+      discovery:
+        server-addr: localhost:8848
+    gateway:
+      discovery:
+        locator:
+          enabled: true # 默认为false, 开启注册中心路由功能, 把网关服务注册到naocs中(设置为true后, 网关服务会自动到注册中心获取其他注册的服务名 实现负载均衡的功能)
+      routes:
+        # 路由1
+        - id: nacos-provider
+          uri: lb://nacos-provider # 通过lb原则手动配置负载均衡 lb://服务名称
+          predicates:
+            - Path=/gateway/** # 断言, 路径相匹配则进行路由, 访问http://localhost:9001/nacos-provider/gateway/** 时匹配
+        # 路由2
+        - id: nacos-provider2
+          uri: lb://nacos-provider # 匹配提供服务的路由地址
+          predicates:
+            - Path=/route/** # 断言, 路径相匹配则进行路由
+            - Host=xx.baidu.com # 断言 如果当前请求来自xx.baidu.com域名, 则进行路由
+
+
+```
+
+##### 4. Method
+```yaml
+server:
+  port: 9999
+
+spring:
+  main:
+    web-application-type: reactive
+  application:
+    name: cloud-gateway-service
+  cloud:
+    nacos:
+      discovery:
+        server-addr: localhost:8848
+    gateway:
+      discovery:
+        locator:
+          enabled: true # 默认为false, 开启注册中心路由功能, 把网关服务注册到naocs中(设置为true后, 网关服务会自动到注册中心获取其他注册的服务名 实现负载均衡的功能)
+      routes:
+        # 路由1
+        - id: nacos-provider
+          uri: lb://nacos-provider # 通过lb原则手动配置负载均衡 lb://服务名称
+          predicates:
+            - Path=/gateway/** # 断言, 路径相匹配则进行路由, 访问http://localhost:9001/nacos-provider/gateway/** 时匹配
+        # 路由2
+        - id: nacos-provider2
+          uri: lb://nacos-provider # 匹配提供服务的路由地址
+          predicates:
+            - Path=/route/** # 断言, 路径相匹配则进行路由
+            - Method=GET, POST # 断言, 请求方法为GET/POST时进行路由
+
+```
+
+##### 5. Query
+```yaml
+server:
+  port: 9999
+
+spring:
+  main:
+    web-application-type: reactive
+  application:
+    name: cloud-gateway-service
+  cloud:
+    nacos:
+      discovery:
+        server-addr: localhost:8848
+    gateway:
+      discovery:
+        locator:
+          enabled: true # 默认为false, 开启注册中心路由功能, 把网关服务注册到naocs中(设置为true后, 网关服务会自动到注册中心获取其他注册的服务名 实现负载均衡的功能)
+      routes:
+        # 路由1
+        - id: nacos-provider
+          uri: lb://nacos-provider # 通过lb原则手动配置负载均衡 lb://服务名称
+          predicates:
+            - Path=/gateway/** # 断言, 路径相匹配则进行路由, 访问http://localhost:9001/nacos-provider/gateway/** 时匹配
+        # 路由2
+        - id: nacos-provider2
+          uri: lb://nacos-provider # 匹配提供服务的路由地址
+          predicates:
+            - Path=/route/** # 断言, 路径相匹配则进行路由
+            - Query=id, .+ # 匹配请求参数, 这里如果需要匹配多个参数, 可以写多个Query断言
+            - Query=name, .+ # 请求中必须包含id, name参数 否则还是不路由 返回404
+```
+
+##### 6. Weight
+```yaml
+server:
+  port: 9999
+
+spring:
+  main:
+    web-application-type: reactive
+  application:
+    name: cloud-gateway-service
+  cloud:
+    nacos:
+      discovery:
+        server-addr: localhost:8848
+    gateway:
+      discovery:
+        locator:
+          enabled: true # 默认为false, 开启注册中心路由功能, 把网关服务注册到naocs中(设置为true后, 网关服务会自动到注册中心获取其他注册的服务名 实现负载均衡的功能)
+      routes:
+        # weight测试
+        - id: weight_high
+          uri: https://weight_higth.org # 当前80%的请求转发到此路由
+          predicates:
+            - Weight=group1, 8
+        # weight测试
+        - id: weight_low
+          uri: https://weight_low.org # 当前20%的请求转发到此路由
+          predicates:
+            - Weight=group1, 2
+```
+
+# 章节64 Gateway过滤器 Filter

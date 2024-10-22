@@ -25,3 +25,5 @@ spring:
           uri: lb://nacos-provider # 匹配提供服务的路由地址
           predicates:
             - Path=/route/** # 断言, 路径相匹配则进行路由
+            - Query=id, .+ # 匹配请求参数, 这里如果需要匹配多个参数, 可以写多个Query断言
+            - Query=name, .+ # 请求中必须包含id, name参数 否则还是不路由 返回404
