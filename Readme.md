@@ -2294,3 +2294,176 @@ spring:
 ```
 
 # 章节64 Gateway过滤器 Filter
+路由(Route)还可以配置多个Filter, 用于修改http请求和响应, 路由过滤器的范围是特定的路由, Spring Cloud Gateway包含需要内置的GatewayFilter工厂, 也可以自定义Filter。
+
+> Gateway有内置的的Filter, 但是我们也可以自定义Filter, 自定义Filter需要实现GatewayFilter接口, 并在配置文件中配置。
+
+### Gateway内置filter
+1. Gateway内置的filter的作用位置有两种: pre(业务逻辑之前), post(业务逻辑之后)
+2. Gateway本身自带的Filter的作用范围有两种: GatewayFilter(单一route), GlobalFilter(所有route)
+3. Gateway内置的单一Filter有32种, 全局Filter有9种
+4. 官网地址: https://docs.spring.io/spring-cloud-gateway/docs/current/reference/html/#global-filters
+
+##### 测试gateway内置filter - StripPrefix
+**1.修改9001/9002服务的上下文路径 context-path: /nacos-provider**
+
+```yaml
+server:
+  port: 9001
+  servlet:
+    context-path: /nacos-provider
+spring:
+  application:
+    name: nacos-provider
+  cloud:
+    nacos:
+      discovery:
+        server-addr: localhost:8848
+
+```
+
+现在我们需要访问localhost:9001/nacos-provider/gateway才能访问到对应接口了
+
+**2.在9999网关服务中配置StripPrefix**
+
+假设我们请求的地址是localhost:9999/gateway/nacos-provider/gateway, 我们需要去掉/gateway, 所以我们需要配置StripPrefix, 去掉请求地址中的第一部分, 如http://localhost:9999/gateway/nacos-provider/gateway, 去掉/gateway
+
+修改yaml配置文件, 增加StripFrefix配置:
+
+```yaml
+server:
+  port: 9999
+
+spring:
+  main:
+    web-application-type: reactive
+  application:
+    name: cloud-gateway-service
+  cloud:
+    nacos:
+      discovery:
+        server-addr: localhost:8848
+    gateway:
+      discovery:
+        locator:
+          enabled: true # 默认为false, 开启注册中心路由功能, 把网关服务注册到naocs中(设置为true后, 网关服务会自动到注册中心获取其他注册的服务名 实现负载均衡的功能)
+      routes:
+        # 路由1
+        - id: nacos-provider
+          uri: lb://nacos-provider # 通过lb原则手动配置负载均衡 lb://服务名称
+          predicates:
+            - Path=/gateway/** # 断言, 路径相匹配则进行路由, 访问http://localhost:9001/nacos-provider/gateway/** 时匹配
+          filters:
+            - StripPrefix=1 # 去掉请求地址中的第一部分, 如http://localhost:9999/gateway/nacos-provider/gateway, 去掉/gateway
+```
+
+![img_100.png](img_100.png)
+
+> spring.cloud.gateway.discovery.locator.enabled=true时, 网关会自动从服务注册中心(nacos)获取服务信息, 根据请求url中的服务名称负载均衡的对该服务下的所有实例进行请求。
+> 但是如果我们配置了断言 - Path, 二者冲突时, 会优先走断言的gateway路由。
+
+### Gateway自定义filter
+要实现Gateway自定义过滤器, 我们想要实现两个接口:
+- GlobalFilter(重写filter方法, 定义过滤逻辑)
+- Ordered(定义过滤器优先级)
+
+-> GatewayFilter.java (Gateway全局过滤器, 非gateway过滤器)
+
+```java
+@Component
+public class GatewayFilter implements GlobalFilter, Ordered {
+
+  // @param  exchange 可以拿到对应的request和response
+  // @param chain 过滤器链
+  // @return 是否放行
+  @Override
+  public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
+    // 请求发送到下游之前的处理
+    String username = exchange.getRequest().getQueryParams().getFirst("username"); // 通过exchange获得请求的第一个参数(第一个参数需要是username)
+    System.out.println("filter " + "username: " + username);
+
+    if (username == null) {
+      System.out.println("username can not be null, 请求被拒绝");
+      exchange.getResponse().setStatusCode(HttpStatus.NOT_ACCEPTABLE);
+      return exchange.getResponse().setComplete();
+    }
+
+    // 放行
+    return chain.filter(exchange).then(Mono.fromRunnable(() -> System.out.println("filter对响应生效"))); // 响应发送到客户端之前的处理
+  }
+
+  // 定义filter的顺序, 返回值是int值, 数字越小 优先级越高 filter的执行顺序越靠前
+  @Override
+  public int getOrder() {
+    return 0;
+  }
+}
+```
+修改
+
+```yaml
+
+```
+
+启动9001/9002服务, 9999网关服务, 测试自定义filter:
+
+1. 不带username参数请求:
+![img_102.png](img_102.png)
+
+![img_101.png](img_101.png)
+
+2. 携带username参数正确请求:
+![img_103.png](img_103.png)
+
+![img_104.png](img_104.png)
+
+# 章节65 分布式事务简介
+分布式事务的解决方案不止Seata
+
+### 概念
+基础概念: 事务的ACID特性
+
+- A (Atomic 原子性): 构成事务的所有操作要么全部执行, 要么全部不执行
+- C (Consistency 一致性): 在事务执行前后, 数据库的所有数据都必须保持一致。 比如张三向李四转账100, 张三扣了100 李四没有加100 这就没有达到一致性
+- I (Isolation 隔离性): 数据库中的事务执行互不干扰, 隔离性和性能冲突 通过配置不同的隔离性级别 可以避免脏读, 不可重复读 幻读等问题
+- D (Durability 持久性): 事务完成后, 对数据的更改会被持久化到磁盘
+
+### 事务
+- 本地事务: 同一数据库和服务器上的事务操作 就是本地事务。
+- 分布式事务: 分布式事务指事务的参与者, 支持事务的服务器、资源服务器以及事务管理器分别位于不同的分布式系统的不同节点上, 甚至属于不同的应用, 分布式事务需要保证这些跨节点的操作 要么全部成功 要么全部失败。 分布式事务就是为了在服务协作期间还能保证不同数据库的数据一致性
+
+在微服务架构中, 比较好用的解决方案就是Seata
+
+### 分布式事务理论
+分布式事务的两大理论依据: CAP定理和BASE理论
+
+##### CAP定理
+在一个分布式系统中, Consistency(一致性)、Availability(可用性)、Partition Tolerance(分区容错性) 三者不能同时成立。只能在CP\AP中选择一个。CA只有单机系统才可能实现, 因为只要是分布式系统 网络必定是不可靠的。
+
+- C(一致性): 一致性指所有节点在同一时间的数据完全相同, 所有操作都可以被其他节点访问到。
+- A(可用性): 可用性指分布式系统在任何时间都能响应客户端的请求, 不会因为某些节点故障而导致服务不可用。
+- P(分区容错性): 当分区中的节点发生故障时, 就必须在C和A中做出选择
+
+##### BASE理论
+BASE是Basically Available(基本可用)、Soft-state(软状态)、Eventually Consistent(最终一致性)三个短语的缩写。BASE理论是对CAP中一致性和可用性权衡后得到的结果, 来源于大规模互联网分布式实践的总结, 基于CAP定理演化而来, 采用适当的方式使系统达到`最终一致性`
+
+- B(Basically Available): 基本可用指分布式系统在出现故障时, 允许损失部分可用性, 保证核心功能可用。比如
+- - 1. 允许响应时间上的损失, 响应时间可以适当延长
+- - 2. 允许系统功能上的损失, 比如双11的时候， 为了保护购物系统的稳定性, 部分消费者可能会被引导到一个降级页面
+- S(Soft-state): 软状态指允许系统中的数据存在中间状态, 并不要求所有节点都持有最新的数据副本(认为中间状态不影响系统的整体可用性), 系统在一段时间内可能存在延迟, 但最终一定能达到一致性。即系统允许不同节点之间进行数据同步的过程存在延时。
+- E(Eventually Consistent): 最终一致性指系统中的数据副本经过一段时间的同步后, 最终能够达到一致性。 最终一致性的本质是强调系统中不同节点的数据最终能够达到一致, 而不需要实时保证强一致性。
+
+基本可用: 保证核心服务是可以使用的, 其他的服务可以降级。如下图 订单服务需要保证可用, 积分服务可以降级 存在延迟 存在软状态, 但最终也要保证了一致性。
+
+![img_105.png](img_105.png)
+
+软状态: 数据同步可以存在延迟 但不影响系统整体可用性 节点间的数据同步存在延迟
+
+![img_106.png](img_106.png)
+
+最终一致性: 流量高峰过后, 经过一段时间的数据同步, 各节点的数据达成最终一致性
+
+![img_107.png](img_107.png)
+
+# 章节66 Seata简介
+

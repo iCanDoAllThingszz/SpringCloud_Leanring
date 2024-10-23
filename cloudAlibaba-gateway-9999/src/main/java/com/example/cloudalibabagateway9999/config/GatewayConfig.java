@@ -1,4 +1,4 @@
-package com.example.config;/**
+package com.example.cloudalibabagateway9999.config;/**
  * @Author:zhoayu
  * @Date:2024/10/21 20:42
  * @Description:com.example.config
