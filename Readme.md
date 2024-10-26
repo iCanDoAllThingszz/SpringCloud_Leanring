@@ -2466,4 +2466,163 @@ BASE是Basically Available(基本可用)、Soft-state(软状态)、Eventually Co
 ![img_107.png](img_107.png)
 
 # 章节66 Seata简介
+### 分布式事务解决方案
+##### 2PC 两阶段提交
+2PC即两阶段提交协议, 是将整个事务流程分为了两个阶段, P是准备阶段 C是提交阶段:
+1. 准备阶段(prepare phase)
+2. 提交阶段(commit phase)
+
+整个事务过程是由事务管理器(TM, Transactional Manager)和参与者组成的:
+- 准备阶段(Prepare Phase): 事务管理器给每个参与者发送prepare消息, 每个数据库参与者在本地执行事务, 并写本地的undo/redo日志(undo日志记录修改前的数据 用于数据回滚; redo记录修改后的数据 用于事务提交后写入数据文件) 此时事务还没有提交。
+- 提交阶段(Commit Phase): 如果事务管理器收到了参与者的执行失败消息或者超时消息时, 直接给每个参与者发送rollback消息; 否则, 发送commit消息, 参与者根据事务管理器的命令执行提交或者回滚操作 并释放事务处理过程中使用的资源。
+
+[两阶段提交存在的问题](https://blog.51cto.com/u_15936016/6325688)
+
+##### Seata
+官网: https://seata.io/zh-cn/docs/overview/what-is-seata.html
+
+Seata一款开源的分布式事务解决方案, 致力于提供高性能和简单易用的分布式事务服务。Seata为用户提供了AT(常用)、TCC、SAGA和XA事务模式, 为用户打造一站式的分布式事务解决方案。
+
+![img_108.png](img_108.png)
+
+##### Seata术语
+- TC (Transaction Coordinator) 事务协调者, 维护全局和分支事务的状态, 驱动全局事务提交或回滚。
+- TM (Transaction Manager) 事务管理者 也是RM(比如某个服务发起一个全局事务请求 比如下单服务发起一个次完整下单事务开启请求 下单->支付->扣库存), 定义全局事务的范围 开始全局事务(发起者), 提交或回滚全局事务。
+- RM (Resource Manager)  资源管理器 (每个参与事务的微服务), 管理分支事务处理的资源, 与TC通信以注册分支事务和报告分支事务的状态 并驱动分支事务提交或回滚
+
+![img_109.png](img_109.png)
+
+TM(也是RM)负责发起全局事务。发起事务后, 参与全局事务的RM执行本地操作 完成后发消息给TC 报告执行成功or失败。事务发起者TM最后和TC通信, 确认各RM的本次事务执行情况 并发起全局事务提交/回滚的命令。
+
+# 章节67 Seata-Server安装
+官方下载地址: https://github.com/seata/seata/releases 这里我们下载了seata-server v1.5.2 放在/opt/seata下
+
+> [spring cloud 版本说明](https://github.com/alibaba/spring-cloud-alibaba/wiki/版本说明)
+
+##### seata-server配置
+修改配置文件如[seata-server 1.5.2安装&配置](https://blog.csdn.net/huangchong0107/article/details/142326189), [spring cloud alibaba整合seata1.5.2](https://www.cnblogs.com/niCong/p/18295665)
+
+配置数据库:
+```sql
+create database seata_db;
+
+use seata_db;
+
+CREATE TABLE IF NOT EXISTS `global_table`
+(
+    `xid`                       VARCHAR(128) NOT NULL,
+    `transaction_id`            BIGINT,
+    `status`                    TINYINT      NOT NULL,
+    `application_id`            VARCHAR(32),
+    `transaction_service_group` VARCHAR(32),
+    `transaction_name`          VARCHAR(128),
+    `timeout`                   INT,
+    `begin_time`                BIGINT,
+    `application_data`          VARCHAR(2000),
+    `gmt_create`                DATETIME,
+    `gmt_modified`              DATETIME,
+    PRIMARY KEY (`xid`),
+    KEY `idx_status_gmt_modified` (`status` , `gmt_modified`),
+    KEY `idx_transaction_id` (`transaction_id`)
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8mb4;
+ 
+ -- the table to store BranchSession data
+CREATE TABLE IF NOT EXISTS `branch_table`
+(
+    `branch_id`         BIGINT       NOT NULL,
+    `xid`               VARCHAR(128) NOT NULL,
+    `transaction_id`    BIGINT,
+    `resource_group_id` VARCHAR(32),
+    `resource_id`       VARCHAR(256),
+    `branch_type`       VARCHAR(8),
+    `status`            TINYINT,
+    `client_id`         VARCHAR(64),
+    `application_data`  VARCHAR(2000),
+    `gmt_create`        DATETIME(6),
+    `gmt_modified`      DATETIME(6),
+    PRIMARY KEY (`branch_id`),
+    KEY `idx_xid` (`xid`)
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8mb4;
+ 
+ -- the table to store lock data
+CREATE TABLE IF NOT EXISTS `lock_table`
+(
+    `row_key`        VARCHAR(128) NOT NULL,
+    `xid`            VARCHAR(128),
+    `transaction_id` BIGINT,
+    `branch_id`      BIGINT       NOT NULL,
+    `resource_id`    VARCHAR(256),
+    `table_name`     VARCHAR(32),
+    `pk`             VARCHAR(36),
+    `status`         TINYINT      NOT NULL DEFAULT '0' COMMENT '0:locked ,1:rollbacking',
+    `gmt_create`     DATETIME,
+    `gmt_modified`   DATETIME,
+    PRIMARY KEY (`row_key`),
+    KEY `idx_status` (`status`),
+    KEY `idx_branch_id` (`branch_id`),
+    KEY `idx_xid_and_branch_id` (`xid` , `branch_id`)
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8mb4;
+ 
+ CREATE TABLE IF NOT EXISTS `distributed_lock`
+(
+    `lock_key`       CHAR(20) NOT NULL,
+    `lock_value`     VARCHAR(20) NOT NULL,
+    `expire`         BIGINT,
+    primary key (`lock_key`)
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8mb4;
+ 
+INSERT INTO `distributed_lock` (lock_key, lock_value, expire) VALUES ('AsyncCommitting', ' ', 0);
+INSERT INTO `distributed_lock` (lock_key, lock_value, expire) VALUES ('RetryCommitting', ' ', 0);
+INSERT INTO `distributed_lock` (lock_key, lock_value, expire) VALUES ('RetryRollbacking', ' ', 0);
+INSERT INTO `distributed_lock` (lock_key, lock_value, expire) VALUES ('TxTimeoutCheck', ' ', 0);
+  
+ 
+```
+启动: 先启动nacos再启动seata-server
+
+启动seata-server:
+```shell
+sh seata-server.sh
+```
+
+# 章节68 Seata Server(TC)环境搭建
+我们上节课安装的Seata Server实际上就是TC(也是一个服务), Seata Client其实就是事务的参与者(微服务)
+
+Seata Server存储模式(store-mode)有三种:
+1. file: 单机模式 全局事务会话信息存在本地文件root.data中
+2. db: 高可用模式, 全局事务会话信息存在DB中
+3. redis: Seata Server1.3及以上版本支持
+
+global_table, branch_table, lock_table分别是全局事务会话表, 分支事务会话表和锁数据表
+
+# 章节69 Seata配置Nacos注册中心和服务中心
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
